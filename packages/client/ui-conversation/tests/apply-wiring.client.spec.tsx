@@ -108,6 +108,19 @@ describe('target-neutral Conversation apply wiring', () => {
     expect(b.runtime.slots.spec('conversation.header')).toEqual({ kind: 'single', scope: 'session-maybe' })
     expect(b.runtime.slots.spec('conversation.header.leading')).toEqual({ kind: 'single', scope: 'root' })
     expect(b.runtime.slots.entries('conversation.composer.bar')).toHaveLength(1)
+    expect(b.runtime.slots.spec('conversation.input.primary'))
+      .toEqual({ kind: 'single', scope: 'session' })
+    await b.runtime.dispose()
+  })
+
+  it('declares a single primary action seat an occupant can claim and release', async () => {
+    const b = await bench()
+    const dispose = b.runtime.slots.register({
+      name: 'conversation.input.primary',
+    }, (() => null) as never)
+    expect(b.runtime.slots.entries('conversation.input.primary')).toHaveLength(1)
+    dispose()
+    expect(b.runtime.slots.entries('conversation.input.primary')).toHaveLength(0)
     await b.runtime.dispose()
   })
 

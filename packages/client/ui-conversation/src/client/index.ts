@@ -84,6 +84,7 @@ export type {
   ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerAttachmentsProps,
   ComposerFileAttachment, ComposerImageAttachment, DraftFileUpload, DraftFileUploads,
   ComposerBarInjected, ComposerBarOwnerProps, ComposerBarProps, ComposerChainProps,
+  ComposerPrimaryOwnerProps,
   ConversationHeaderActionOwnerProps, ConversationHeaderCornerOwnerProps, ConversationHeaderLineageOwnerProps,
   ConversationContentInputProps, ConversationContentProps,
   ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionHeaderSlotProps,

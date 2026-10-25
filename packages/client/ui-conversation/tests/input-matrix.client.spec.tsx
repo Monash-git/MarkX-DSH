@@ -7,6 +7,7 @@
  */
 import './control-row-dom.ts'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type { Context } from '@deepseek-ai/cordis'
@@ -88,7 +89,8 @@ function mountBar(shell: SessionInputShell, over?: { running?: boolean; disabled
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(createSnapshotStore<string | null>(null)),
-    renderSlot: (() => null) as InputBarProps['renderSlot'],
+    renderSlot: ((_key: string, _owner: object, opts?: { fallback?: ReactNode }) =>
+      opts?.fallback ?? null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     t: makeTranslate(zh, commonZh),
     variant: 'composer',

@@ -10,6 +10,7 @@
  */
 import './control-row-dom.ts'
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
+import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import {
@@ -198,7 +199,8 @@ async function scopedBench(register?: (inputTriggers: InputTriggerService) => vo
     useNotices: bindSnapshotSelector(shell.notices),
     useLexicon: bindSnapshotSelector(shell.lexicon),
     useMenuLauncher: bindSnapshotSelector(controller.launcher),
-    renderSlot: (() => null) as InputBarProps['renderSlot'],
+    renderSlot: ((_key: string, _owner: object, opts?: { fallback?: ReactNode }) =>
+      opts?.fallback ?? null) as InputBarProps['renderSlot'],
     stop: vi.fn(),
     useStopShortcut: bindSnapshotSelector(createSnapshotStore<readonly string[]>([])),
     t: makeTranslate(zh, commonZh),

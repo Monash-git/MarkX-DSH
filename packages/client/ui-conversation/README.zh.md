@@ -168,6 +168,8 @@ selector 必须是 owner currency 的纯函数。非 null 返回值作为 `match
 
 `conversation.input.activity` 在模型选择器与发送按钮之间承载一个控件。其 `onActiveChange` 回调将控件展开至整条工具栏并隐藏普通辅助控件和上下文用量按钮，同时保留编辑器与提交按钮。关闭活动后恢复这些控件，上下文详情保持关闭。首页输入框下方没有内容时，该区域保持收起。占用者在卸载时释放展开状态，并拥有活动专属反馈。
 
+`conversation.input.primary` 可选择替换主发送/停止按钮。其 owner share 提供默认按钮节点、composer 的 `empty`、`running`、`subagent`、`locked`、`machineBusy`、`uploadsPending` 状态、默认按钮当前是否为可点击的 Stop（`stopLive`），以及供占用者 mousedown 使用的 `keepFocus`。占用者不接管时原样渲染 `defaultAction`；没有占用者时回退到同一节点，因此发送、停止、插话与排队行为保持不变。没有选中 Session 时不会调度该 seat。`conversation.input.activity` 仍是独立的辅助控件位置，不是主按钮。
+
 <a id="model-experience"></a>
 ## 模型体验
 

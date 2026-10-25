@@ -1,5 +1,5 @@
 /** Target-neutral Conversation slot declarations and composed component props. */
-import type { ReactNode, RefObject } from 'react'
+import type { MouseEvent, ReactNode, RefObject } from 'react'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { FileUploadReceiptId } from '@deepseek-ai/dsh-client-file-upload/client'
@@ -280,6 +280,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.input.right': { kind: 'list'; scope: 'session' }
     /** Compact action after the model selector; it can expand across the toolbar while retaining the editor and submit action. */
     'conversation.input.activity': { kind: 'single'; scope: 'session'; owner: InputActivityOwnerProps }
+    /**
+     * Optional replacement for the primary Send/Stop action. The occupant
+     * renders `defaultAction` unchanged whenever it does not own the state;
+     * an absent occupant falls back to that same node, so the default
+     * Send/Stop/Steer/Queue behavior is preserved either way.
+     */
+    'conversation.input.primary': { kind: 'single'; scope: 'session'; owner: ComposerPrimaryOwnerProps }
     /** Resident composer body, including the no-Session inert state. */
     'conversation.composer.bar': { kind: 'single'; scope: 'session-maybe'; owner: ComposerBarOwnerProps }
     /** Optional draft-attachment rail and drop target. */
@@ -539,6 +546,39 @@ export interface InputActivityOwnerProps extends InputControlOwnerProps {
   onActiveChange: (active: boolean) => void
 }
 
+/**
+ * Owner share of the primary Send/Stop action seat. The occupant decides from
+ * this state whether it owns the primary action; rendering `defaultAction`
+ * unchanged always preserves the shipped behavior.
+ */
+export interface ComposerPrimaryOwnerProps {
+  /**
+   * The default primary action, including its tooltip, icon, accessible
+   * label, disabled state, and click behavior. Render it unchanged whenever
+   * the occupant does not take over.
+   */
+  readonly defaultAction: ReactNode
+  /** Whether the draft has neither text nor attachments. */
+  readonly empty: boolean
+  /** Whether the addressed agent is running. */
+  readonly running: boolean
+  /** Whether this Session is a subagent; a root-only occupant must decline. */
+  readonly subagent: boolean
+  /** Whether the composer refuses interaction: removed, inert, owner-blocked, or a parent-offline continuable child. */
+  readonly locked: boolean
+  /** Whether the input machine is adjudicating or submitting. */
+  readonly machineBusy: boolean
+  /** Whether a picked file draft is still uploading or failed to upload. */
+  readonly uploadsPending: boolean
+  /** Whether the default action is a clickable Stop right now; a replacement Stop inherits its availability. */
+  readonly stopLive: boolean
+  /**
+   * Suppress the press's focus theft so focus stays in the draft editor.
+   * @param event - the occupant button's mousedown event.
+   */
+  readonly keepFocus: (event: MouseEvent<HTMLButtonElement>) => void
+}
+
 /** Full props of the resident composer bar. */
 export type ComposerBarProps =
   PropsRuntime<'conversation.composer.bar'>
@@ -547,7 +587,7 @@ export type ComposerBarProps =
     | 'conversation.input.permission'
     | 'conversation.input.left' | 'conversation.input.plan'
     | 'conversation.input.right' | 'conversation.input.model' | 'conversation.input.activity'
-    | 'conversation.composer.dock'
+    | 'conversation.input.primary' | 'conversation.composer.dock'
   >
   & InjectFace<ComposerBarInjected>
   & PropsLocale<'conversation'>

@@ -168,6 +168,8 @@ The selector must be a pure function of the owner currency. Its non-null return 
 
 `conversation.input.activity` hosts one control between the model selector and Send. Its `onActiveChange` callback expands that control across the toolbar and hides ordinary accessory controls and the context meter while preserving the editor and submit action. Closing the activity restores those controls with context details closed. The empty hero dock remains collapsed when it has no content. The occupant releases expansion on unmount and owns any activity-specific feedback.
 
+`conversation.input.primary` optionally replaces the primary Send/Stop action. Its owner share carries the default action node plus the composer's `empty`, `running`, `subagent`, `locked`, `machineBusy`, and `uploadsPending` state, whether the default action is a live Stop (`stopLive`), and a `keepFocus` handler for the occupant's mousedown. The occupant renders `defaultAction` unchanged whenever it does not own the state; an absent occupant falls back to that same node, so Send, Stop, Steer, and Queue behavior is unchanged. Without a selected Session the seat is not dispatched. `conversation.input.activity` remains a separate accessory seat and is not the primary control.
+
 <a id="model-experience"></a>
 ## Model Experience
 

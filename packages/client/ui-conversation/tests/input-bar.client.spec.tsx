@@ -29,7 +29,8 @@ import type { SubmitOutcome } from '../src/client/contract/input.ts'
 import { SessionInputShell } from '../src/client/input/facade.ts'
 import { $replaceDetectSpanWithText, $selectDetectSpan } from '../src/client/input/editor/span-map.ts'
 import type {
-  ComposerAttachment, ComposerAttachmentsOwnerProps, DraftFileUploads, InputActivityOwnerProps,
+  ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerPrimaryOwnerProps, DraftFileUploads,
+  InputActivityOwnerProps,
 } from '../src/client/contract/slots.ts'
 import type { DraftAttachmentId } from '../src/client/contract/input.ts'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
@@ -100,6 +101,8 @@ interface BenchOptions {
   leftItems?: React.ReactNode
   rightItems?: React.ReactNode
   activityEntry?: (owner: InputActivityOwnerProps) => React.ReactNode
+  /** Replacement for the primary action seat; absent renders the slot's fallback. */
+  primaryEntry?: (owner: ComposerPrimaryOwnerProps) => React.ReactNode
   contextPressure?: ContextPressureProjection
   footer?: React.ReactNode
   attachments?: readonly ComposerAttachment[]
@@ -163,7 +166,7 @@ function bench(over?: BenchOptions) {
   const busyEnter = createSnapshotStore<'queue' | 'steer'>(over?.busyEnter ?? 'queue')
   const stopShortcut = createSnapshotStore<readonly string[]>(['Esc', 'Esc'])
   const slotCalls: { key: string; owner: unknown }[] = []
-  const renderSlot = ((key: string, owner: object) => {
+  const renderSlot = ((key: string, owner: object, opts?: { fallback?: React.ReactNode }) => {
     slotCalls.push({ key, owner })
     if (key === 'conversation.input.overlay') return over?.overlay ?? null
     if (key === 'conversation.input.left') return over?.leftItems ?? null
@@ -173,6 +176,9 @@ function bench(over?: BenchOptions) {
     if (key === 'conversation.input.permission') return over?.permissionEntry ?? null
     if (key === 'conversation.input.model') return over?.modelEntry ?? null
     if (key === 'conversation.input.activity') return over?.activityEntry?.(owner as InputActivityOwnerProps) ?? null
+    if (key === 'conversation.input.primary') {
+      return over?.primaryEntry?.(owner as ComposerPrimaryOwnerProps) ?? opts?.fallback ?? null
+    }
     return null
   }) as never
   const props: InputBarProps = {
@@ -267,6 +273,14 @@ function attachmentOwner(slotCalls: readonly { key: string; owner: unknown }[]):
     if (call?.key === 'conversation.input.attachments') return call.owner as ComposerAttachmentsOwnerProps
   }
   throw new Error('attachment slot was not rendered')
+}
+
+function primaryOwner(slotCalls: readonly { key: string; owner: unknown }[]): ComposerPrimaryOwnerProps {
+  for (let i = slotCalls.length - 1; i >= 0; i -= 1) {
+    const call = slotCalls[i]
+    if (call?.key === 'conversation.input.primary') return call.owner as ComposerPrimaryOwnerProps
+  }
+  throw new Error('primary action slot was not rendered')
 }
 
 /** The state's placeholder copy (the textarea.placeholder equivalent; the visible layer renders it only while empty). */
@@ -1483,6 +1497,90 @@ describe('running and lock semantics', () => {
   })
 })
 
+describe('primary action seat', () => {
+  it('falls back to the default action when the seat is unoccupied', () => {
+    const { button, stop, slotCalls } = bench({ running: true })
+    expect(primaryOwner(slotCalls)).toMatchObject({
+      empty: true,
+      running: true,
+      subagent: false,
+      locked: false,
+      machineBusy: false,
+      uploadsPending: false,
+      stopLive: true,
+    })
+    expect(button.getAttribute('aria-label')).toBe('停止生成')
+    fireEvent.click(button)
+    expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the default action when the occupant returns it', () => {
+    const { button, sink, stop } = bench({
+      running: true,
+      draft: '继续',
+      primaryEntry: owner => owner.defaultAction,
+    })
+    expect(button.getAttribute('aria-label')).toBe('排队发送')
+    fireEvent.click(button)
+    expect(sink).toHaveBeenCalledWith('继续', [], 'queue', expect.any(AbortSignal))
+    expect(stop).not.toHaveBeenCalled()
+  })
+
+  it('renders an occupant replacement and lends it the focus guard', () => {
+    const pause = vi.fn()
+    const { view, textarea } = bench({
+      running: true,
+      primaryEntry: owner => (
+        <button type="button" aria-label="Pause" onMouseDown={owner.keepFocus} onClick={pause}>pause</button>
+      ),
+    })
+    expect(view.queryByRole('button', { name: '停止生成' })).toBeNull()
+    const pauseButton = view.getByRole('button', { name: 'Pause' })
+    const focused: (boolean | undefined)[] = []
+    textarea.focus = (options?: FocusOptions) => { focused.push(options?.preventScroll) }
+    expect(fireEvent.mouseDown(pauseButton)).toBe(false)
+    expect(focused).toEqual([true])
+    fireEvent.click(pauseButton)
+    expect(pause).toHaveBeenCalledTimes(1)
+  })
+
+  it('reports the state an occupant needs to decline', () => {
+    const child = bench({ running: true, subagent: CONTINUABLE_CHILD })
+    expect(primaryOwner(child.slotCalls)).toMatchObject({
+      subagent: true,
+      running: true,
+      stopLive: false,
+    })
+    cleanup()
+    const locked = bench({ disabled: true, draft: '保留' })
+    expect(primaryOwner(locked.slotCalls)).toMatchObject({ locked: true, running: false })
+    cleanup()
+    const file = {
+      kind: 'file' as const,
+      id: 'file-1' as DraftAttachmentId,
+      file: new File(['x'], 'note.txt', { type: 'text/plain' }),
+    }
+    const uploading = bench({
+      draft: '带附件',
+      attachments: [file],
+      fileUploads: { [file.id]: { status: 'uploading', loaded: 0 } },
+    })
+    expect(primaryOwner(uploading.slotCalls)).toMatchObject({
+      empty: false,
+      uploadsPending: true,
+      locked: false,
+    })
+  })
+
+  it('keeps the default action outside a Session without dispatching the seat', () => {
+    const { props, view, slotCalls } = bench({ draft: 'cold' })
+    const dispatched = slotCalls.filter(call => call.key === 'conversation.input.primary').length
+    act(() => { view.rerender(<InputBar {...props} sessionId={undefined} />) })
+    expect(slotCalls.filter(call => call.key === 'conversation.input.primary')).toHaveLength(dispatched)
+    expect(view.getByRole('button', { name: '发送消息' })).toBeTruthy()
+  })
+})
+
 describe('machine pending lock', () => {
   it('submitting renders read-only textarea, pending dot, and a disabled primary', () => {
     const { view, shell } = bench()
@@ -1812,7 +1910,7 @@ describe('command launcher chrome and control seats', () => {
       'conversation.input.overlay', 'conversation.input.attachments',
       'conversation.input.permission', 'conversation.input.plan', 'conversation.input.left',
       'conversation.input.right', 'conversation.input.model', 'conversation.input.activity',
-      'conversation.composer.dock',
+      'conversation.input.primary', 'conversation.composer.dock',
     ])
     expect(view.queryByLabelText('Plan mode')).toBeNull()
     expect(view.queryByLabelText('Model')).toBeNull()
