@@ -14,7 +14,7 @@ on:
       - '.github/workflows/build-desktop-unsigned.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: build-desktop-unsigned-${{ github.ref }}
@@ -74,6 +74,19 @@ jobs:
             "### packaging log tail" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
             Get-Content package.log -Tail 120 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
+
+      - name: Publish packaging log to ci-logs branch
+        if: failure()
+        shell: pwsh
+        run: |
+          if (-not (Test-Path package.log)) { Write-Host 'no package.log'; exit 0 }
+          git config user.name 'ci-log-bot'
+          git config user.email 'ci-log-bot@users.noreply.github.com'
+          Copy-Item package.log ci-package.log
+          git checkout -B ci-logs
+          git add -f ci-package.log
+          git commit -m "ci: packaging log for run $env:GITHUB_RUN_ID"
+          git push --force origin ci-logs
 
       - name: Show produced artifacts
         run: |
