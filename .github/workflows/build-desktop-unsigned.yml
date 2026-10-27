@@ -62,8 +62,21 @@ jobs:
           '@.TrimStart() | Set-Content -LiteralPath $path -Encoding utf8
           Get-Content $path
 
+      - name: Record worktree state (after install)
+        shell: pwsh
+        run: |
+          git status --porcelain --untracked-files=normal | Set-Content -LiteralPath worktree-after-install.txt -Encoding utf8
+          "after install: " + (Get-Content worktree-after-install.txt | Measure-Object).Count + ' entries'
+
       - name: Build all gates
         run: pnpm build
+
+      - name: Record worktree state (after build)
+        shell: pwsh
+        run: |
+          git status --porcelain --untracked-files=normal | Set-Content -LiteralPath worktree-after-build.txt -Encoding utf8
+          Get-Content worktree-after-build.txt | Select-Object -First 40
+          "after build: " + (Get-Content worktree-after-build.txt | Measure-Object).Count + ' entries'
 
       - name: Package desktop (unsigned, dir)
         shell: pwsh
@@ -91,17 +104,20 @@ jobs:
             Get-Content package.log -Tail 120 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
 
-      - name: Publish packaging log to ci-logs branch
-        if: failure()
+      - name: Publish diagnostics to ci-logs branch
+        if: always()
         shell: pwsh
         run: |
-          if (-not (Test-Path package.log)) { Write-Host 'no package.log'; exit 0 }
           git config user.name 'ci-log-bot'
           git config user.email 'ci-log-bot@users.noreply.github.com'
-          Copy-Item package.log ci-package.log
           git checkout -B ci-logs
-          git add -f ci-package.log
-          git commit -m "ci: packaging log for run $env:GITHUB_RUN_ID"
+          if (Test-Path package.log) { Copy-Item package.log ci-package.log -Force; git add -f ci-package.log }
+          if (Test-Path worktree-after-install.txt) { git add -f worktree-after-install.txt }
+          if (Test-Path worktree-after-build.txt) { git add -f worktree-after-build.txt }
+          "run $env:GITHUB_RUN_ID conclusion=$env:GITHUB_JOB status=${{ job.status }}" | Set-Content -LiteralPath ci-run.txt -Encoding utf8
+          git add -f ci-run.txt
+          git commit -m "ci: diagnostics for run $env:GITHUB_RUN_ID" 2>$null
+          if ($LASTEXITCODE -ne 0) { git commit --allow-empty -m "ci: diagnostics for run $env:GITHUB_RUN_ID" }
           git push --force origin ci-logs
 
       - name: Show produced artifacts
