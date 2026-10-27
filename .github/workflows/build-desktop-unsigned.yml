@@ -60,25 +60,9 @@ jobs:
           DSH_DESKTOP_MANDATORY_UPDATE_CONFIG={"allowedAuthOrigins":["https://login.example.invalid"]}
           DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_CONCURRENCY=4
           '@.TrimStart() | Set-Content -LiteralPath $path -Encoding utf8
-          Get-Content $path
-
-      - name: Record worktree state (after install)
-        shell: pwsh
-        run: |
-          $state = @(git status --porcelain --untracked-files=normal)
-          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'worktree-after-install.txt') -Value $state -Encoding utf8
-          "after install: $($state.Count) entries"
 
       - name: Build all gates
         run: pnpm build
-
-      - name: Record worktree state (after build)
-        shell: pwsh
-        run: |
-          $state = @(git status --porcelain --untracked-files=normal)
-          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'worktree-after-build.txt') -Value $state -Encoding utf8
-          $state | Select-Object -First 40
-          "after build: $($state.Count) entries"
 
       - name: Package desktop (unsigned, dir)
         shell: pwsh
@@ -107,31 +91,12 @@ jobs:
             Get-Content $log -Tail 120 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
 
-      - name: Publish diagnostics to ci-logs branch
-        if: always()
-        shell: pwsh
-        run: |
-          git config user.name 'ci-log-bot'
-          git config user.email 'ci-log-bot@users.noreply.github.com'
-          git checkout -B ci-logs
-          $tmp = $env:RUNNER_TEMP
-          if (Test-Path (Join-Path $tmp 'package.log')) { Copy-Item (Join-Path $tmp 'package.log') ci-package.log -Force; git add -f ci-package.log }
-          foreach ($name in 'worktree-after-install.txt','worktree-after-build.txt') { $src = Join-Path $tmp $name; if (Test-Path $src) { Copy-Item $src $name -Force; git add -f $name } }
-
-          "run $env:GITHUB_RUN_ID conclusion=$env:GITHUB_JOB status=${{ job.status }}" | Set-Content -LiteralPath ci-run.txt -Encoding utf8
-          git add -f ci-run.txt
-          git commit -m "ci: diagnostics for run $env:GITHUB_RUN_ID" 2>$null
-          if ($LASTEXITCODE -ne 0) { git commit --allow-empty -m "ci: diagnostics for run $env:GITHUB_RUN_ID" }
-          git push --force origin ci-logs
-
       - name: Show produced artifacts
         run: |
           $root = 'apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/win-unpacked'
-          Get-ChildItem $root -Force | Select-Object Name, Length | Format-Table -AutoSize
           $asar = Join-Path $root 'resources/app.asar'
           if (-not (Test-Path $asar)) { throw "missing $asar" }
-          $size = (Get-Item $asar).Length
-          "app.asar: {0:N0} bytes" -f $size
+          "app.asar: {0:N0} bytes" -f (Get-Item $asar).Length
           $bytes = [System.IO.File]::ReadAllBytes($asar)
           $text = [System.Text.Encoding]::UTF8.GetString($bytes)
           "slot marker: " + $text.Contains('conversation.input.primary')
@@ -150,27 +115,15 @@ jobs:
           $root = Resolve-Path 'apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/win-unpacked/resources'
           $zip = Join-Path $env:RUNNER_TEMP 'dsh-resources-win-x64.zip'
           if (Test-Path $zip) { Remove-Item $zip -Force }
+          $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
+          if (-not (Test-Path $sevenZip)) { throw '7-Zip is missing on the runner image' }
+          Push-Location $root
           try {
-            $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
-            if (Test-Path $sevenZip) {
-              Push-Location $root
-              try {
-                & $sevenZip a -tzip -mx=5 $zip 'app.asar' 'app.asar.unpacked' | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw "7z exited with $LASTEXITCODE" }
-              } finally { Pop-Location }
-            } else {
-              $stage = Join-Path $env:GITHUB_WORKSPACE 'release-stage'
-              New-Item -ItemType Directory -Force -Path $stage | Out-Null
-              Copy-Item (Join-Path $root 'app.asar') $stage -Force
-              robocopy (Join-Path $root 'app.asar.unpacked') (Join-Path $stage 'app.asar.unpacked') /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
-              Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Fastest
-            }
-            if (-not (Test-Path $zip)) { throw 'zip was not created' }
-            "zip: {0:N0} MB" -f ((Get-Item $zip).Length / 1MB)
-          } catch {
-            "PACK ZIP ERROR: $($_.Exception.Message)" | Out-File -FilePath (Join-Path $env:RUNNER_TEMP 'package.log') -Append -Encoding utf8
-            throw
-          }
+            & $sevenZip a -tzip -mx=5 $zip 'app.asar' 'app.asar.unpacked' | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "7z exited with $LASTEXITCODE" }
+          } finally { Pop-Location }
+          if (-not (Test-Path $zip)) { throw 'zip was not created' }
+          "zip: {0:N0} MB" -f ((Get-Item $zip).Length / 1MB)
 
       - name: Publish resources release
         shell: pwsh
@@ -178,9 +131,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = 'desktop-latest'
+          $zip = Join-Path $env:RUNNER_TEMP 'dsh-resources-win-x64.zip'
           gh release view $tag *> $null
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --prerelease --title 'Desktop build (unsigned, latest)' --notes "Automated unsigned Windows build from $env:GITHUB_SHA. Download dsh-resources-win-x64.zip and install it with ops/install-desktop.ps1."
           }
-          $zip = Join-Path $env:RUNNER_TEMP 'dsh-resources-win-x64.zip'
           gh release upload $tag $zip --clobber
