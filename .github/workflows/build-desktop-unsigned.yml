@@ -50,7 +50,30 @@ jobs:
         run: pnpm build
 
       - name: Package desktop (unsigned, dir)
-        run: pnpm --filter @deepseek-ai/dsh-desktop exec tsx scripts/package-target.ts win-x64 --unsigned --dir
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:GITHUB_WORKSPACE 'package.log'
+          pnpm --filter @deepseek-ai/dsh-desktop exec tsx scripts/package-target.ts win-x64 --unsigned --dir 2>&1 |
+            Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { throw "packaging failed with exit code $LASTEXITCODE" }
+
+      - name: Upload packaging log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-log
+          path: package.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Summarize failure
+        if: failure()
+        shell: pwsh
+        run: |
+          if (Test-Path package.log) {
+            "### packaging log tail" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Get-Content package.log -Tail 120 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          }
 
       - name: Show produced artifacts
         run: |
