@@ -1,0 +1,72 @@
+name: Build Desktop (Windows, unsigned)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - 'packages/**'
+      - 'native/**'
+      - 'scripts/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/build-desktop-unsigned.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-desktop-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.28.5
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all gates
+        run: pnpm build
+
+      - name: Package desktop (unsigned, dir)
+        run: pnpm --filter @deepseek-ai/dsh-desktop exec tsx scripts/package-target.ts win-x64 --unsigned --dir
+
+      - name: Show produced artifacts
+        run: |
+          $root = 'apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/win-unpacked'
+          Get-ChildItem $root -Force | Select-Object Name, Length | Format-Table -AutoSize
+          $asar = Join-Path $root 'resources/app.asar'
+          if (-not (Test-Path $asar)) { throw "missing $asar" }
+          $size = (Get-Item $asar).Length
+          "app.asar: {0:N0} bytes" -f $size
+          $bytes = [System.IO.File]::ReadAllBytes($asar)
+          $text = [System.Text.Encoding]::UTF8.GetString($bytes)
+          "slot marker: " + $text.Contains('conversation.input.primary')
+
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-desktop-win-x64-unsigned
+          path: apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/win-unpacked
+          retention-days: 14
