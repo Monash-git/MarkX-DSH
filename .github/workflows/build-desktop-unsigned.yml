@@ -65,8 +65,9 @@ jobs:
       - name: Record worktree state (after install)
         shell: pwsh
         run: |
-          git status --porcelain --untracked-files=normal | Set-Content -LiteralPath worktree-after-install.txt -Encoding utf8
-          "after install: " + (Get-Content worktree-after-install.txt | Measure-Object).Count + ' entries'
+          $state = @(git status --porcelain --untracked-files=normal)
+          Set-Content -LiteralPath worktree-after-install.txt -Value $state -Encoding utf8
+          "after install: $($state.Count) entries"
 
       - name: Build all gates
         run: pnpm build
@@ -74,9 +75,10 @@ jobs:
       - name: Record worktree state (after build)
         shell: pwsh
         run: |
-          git status --porcelain --untracked-files=normal | Set-Content -LiteralPath worktree-after-build.txt -Encoding utf8
-          Get-Content worktree-after-build.txt | Select-Object -First 40
-          "after build: " + (Get-Content worktree-after-build.txt | Measure-Object).Count + ' entries'
+          $state = @(git status --porcelain --untracked-files=normal)
+          Set-Content -LiteralPath worktree-after-build.txt -Value $state -Encoding utf8
+          $state | Select-Object -First 40
+          "after build: $($state.Count) entries"
 
       - name: Package desktop (unsigned, dir)
         shell: pwsh
