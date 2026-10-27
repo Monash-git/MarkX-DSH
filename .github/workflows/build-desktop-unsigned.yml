@@ -66,7 +66,7 @@ jobs:
         shell: pwsh
         run: |
           $state = @(git status --porcelain --untracked-files=normal)
-          Set-Content -LiteralPath worktree-after-install.txt -Value $state -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'worktree-after-install.txt') -Value $state -Encoding utf8
           "after install: $($state.Count) entries"
 
       - name: Build all gates
@@ -76,14 +76,14 @@ jobs:
         shell: pwsh
         run: |
           $state = @(git status --porcelain --untracked-files=normal)
-          Set-Content -LiteralPath worktree-after-build.txt -Value $state -Encoding utf8
+          Set-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'worktree-after-build.txt') -Value $state -Encoding utf8
           $state | Select-Object -First 40
           "after build: $($state.Count) entries"
 
       - name: Package desktop (unsigned, dir)
         shell: pwsh
         run: |
-          $log = Join-Path $env:GITHUB_WORKSPACE 'package.log'
+          $log = Join-Path $env:RUNNER_TEMP 'package.log'
           pnpm --filter @deepseek-ai/dsh-desktop exec tsx scripts/package-target.ts win-x64 --unsigned --dir 2>&1 |
             Tee-Object -FilePath $log
           if ($LASTEXITCODE -ne 0) { throw "packaging failed with exit code $LASTEXITCODE" }
@@ -93,7 +93,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: package-log
-          path: package.log
+          path: ${{ runner.temp }}/package.log
           retention-days: 7
           if-no-files-found: ignore
 
@@ -101,9 +101,10 @@ jobs:
         if: failure()
         shell: pwsh
         run: |
-          if (Test-Path package.log) {
+          $log = Join-Path $env:RUNNER_TEMP 'package.log'
+          if (Test-Path $log) {
             "### packaging log tail" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
-            Get-Content package.log -Tail 120 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+            Get-Content $log -Tail 120 | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
           }
 
       - name: Publish diagnostics to ci-logs branch
@@ -113,9 +114,10 @@ jobs:
           git config user.name 'ci-log-bot'
           git config user.email 'ci-log-bot@users.noreply.github.com'
           git checkout -B ci-logs
-          if (Test-Path package.log) { Copy-Item package.log ci-package.log -Force; git add -f ci-package.log }
-          if (Test-Path worktree-after-install.txt) { git add -f worktree-after-install.txt }
-          if (Test-Path worktree-after-build.txt) { git add -f worktree-after-build.txt }
+          $tmp = $env:RUNNER_TEMP
+          if (Test-Path (Join-Path $tmp 'package.log')) { Copy-Item (Join-Path $tmp 'package.log') ci-package.log -Force; git add -f ci-package.log }
+          foreach ($name in 'worktree-after-install.txt','worktree-after-build.txt') { $src = Join-Path $tmp $name; if (Test-Path $src) { Copy-Item $src $name -Force; git add -f $name } }
+
           "run $env:GITHUB_RUN_ID conclusion=$env:GITHUB_JOB status=${{ job.status }}" | Set-Content -LiteralPath ci-run.txt -Encoding utf8
           git add -f ci-run.txt
           git commit -m "ci: diagnostics for run $env:GITHUB_RUN_ID" 2>$null
@@ -146,7 +148,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $root = Resolve-Path 'apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/win-unpacked/resources'
-          $zip = Join-Path $env:GITHUB_WORKSPACE 'dsh-resources-win-x64.zip'
+          $zip = Join-Path $env:RUNNER_TEMP 'dsh-resources-win-x64.zip'
           if (Test-Path $zip) { Remove-Item $zip -Force }
           try {
             $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
@@ -166,7 +168,7 @@ jobs:
             if (-not (Test-Path $zip)) { throw 'zip was not created' }
             "zip: {0:N0} MB" -f ((Get-Item $zip).Length / 1MB)
           } catch {
-            "PACK ZIP ERROR: $($_.Exception.Message)" | Out-File -FilePath package.log -Append -Encoding utf8
+            "PACK ZIP ERROR: $($_.Exception.Message)" | Out-File -FilePath (Join-Path $env:RUNNER_TEMP 'package.log') -Append -Encoding utf8
             throw
           }
 
@@ -180,4 +182,5 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             gh release create $tag --prerelease --title 'Desktop build (unsigned, latest)' --notes "Automated unsigned Windows build from $env:GITHUB_SHA. Download dsh-resources-win-x64.zip and install it with ops/install-desktop.ps1."
           }
-          gh release upload $tag dsh-resources-win-x64.zip --clobber
+          $zip = Join-Path $env:RUNNER_TEMP 'dsh-resources-win-x64.zip'
+          gh release upload $tag $zip --clobber
