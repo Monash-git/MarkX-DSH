@@ -46,6 +46,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Write desktop package environment
+        shell: pwsh
+        run: |
+          $path = 'apps/desktop/.env.windows'
+          @'
+          DSH_DESKTOP_APP_ID=com.deepseek.harness
+          DSH_DESKTOP_AUTO_UPDATE_ENV=test
+          DOWNLOAD_TEST_ORIGIN=
+          DOWNLOAD_TEST_RELEASE_ID=
+          DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN=https://updates.example.invalid/
+          DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN=https://updates.example.invalid/
+          DSH_DESKTOP_MANDATORY_UPDATE_CONFIG={"allowedAuthOrigins":["https://login.example.invalid"]}
+          DSH_DESKTOP_WINDOWS_SIGNATURE_CACHE_CONCURRENCY=4
+          '@.TrimStart() | Set-Content -LiteralPath $path -Encoding utf8
+          Get-Content $path
+
       - name: Build all gates
         run: pnpm build
 
@@ -106,3 +122,28 @@ jobs:
           name: dsh-desktop-win-x64-unsigned
           path: apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/win-unpacked
           retention-days: 14
+
+      - name: Pack resources zip
+        shell: pwsh
+        run: |
+          $root = 'apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/win-unpacked/resources'
+          $stage = 'release-stage'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "$root/app.asar" $stage -Force
+          robocopy "$root/app.asar.unpacked" "$stage/app.asar.unpacked" /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+          $zip = Join-Path $env:GITHUB_WORKSPACE 'dsh-resources-win-x64.zip'
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+          "zip: {0:N0} MB" -f ((Get-Item $zip).Length / 1MB)
+
+      - name: Publish resources release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = 'desktop-latest'
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --prerelease --title 'Desktop build (unsigned, latest)' --notes "Automated unsigned Windows build from $env:GITHUB_SHA. Download dsh-resources-win-x64.zip and install it with ops/install-desktop.ps1."
+          }
+          gh release upload $tag dsh-resources-win-x64.zip --clobber
