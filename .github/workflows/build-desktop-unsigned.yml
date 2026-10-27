@@ -126,15 +126,31 @@ jobs:
       - name: Pack resources zip
         shell: pwsh
         run: |
-          $root = 'apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/win-unpacked/resources'
-          $stage = 'release-stage'
-          New-Item -ItemType Directory -Force -Path $stage | Out-Null
-          Copy-Item "$root/app.asar" $stage -Force
-          robocopy "$root/app.asar.unpacked" "$stage/app.asar.unpacked" /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+          $ErrorActionPreference = 'Stop'
+          $root = Resolve-Path 'apps/desktop/.desktop-build/targets/win-x64/unsigned-artifacts/win-unpacked/resources'
           $zip = Join-Path $env:GITHUB_WORKSPACE 'dsh-resources-win-x64.zip'
           if (Test-Path $zip) { Remove-Item $zip -Force }
-          Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
-          "zip: {0:N0} MB" -f ((Get-Item $zip).Length / 1MB)
+          try {
+            $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
+            if (Test-Path $sevenZip) {
+              Push-Location $root
+              try {
+                & $sevenZip a -tzip -mx=5 $zip 'app.asar' 'app.asar.unpacked' | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw "7z exited with $LASTEXITCODE" }
+              } finally { Pop-Location }
+            } else {
+              $stage = Join-Path $env:GITHUB_WORKSPACE 'release-stage'
+              New-Item -ItemType Directory -Force -Path $stage | Out-Null
+              Copy-Item (Join-Path $root 'app.asar') $stage -Force
+              robocopy (Join-Path $root 'app.asar.unpacked') (Join-Path $stage 'app.asar.unpacked') /MIR /NFL /NDL /NJH /NJS /NP | Out-Null
+              Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Fastest
+            }
+            if (-not (Test-Path $zip)) { throw 'zip was not created' }
+            "zip: {0:N0} MB" -f ((Get-Item $zip).Length / 1MB)
+          } catch {
+            "PACK ZIP ERROR: $($_.Exception.Message)" | Out-File -FilePath package.log -Append -Encoding utf8
+            throw
+          }
 
       - name: Publish resources release
         shell: pwsh
